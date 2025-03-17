@@ -1,0 +1,159 @@
+"""Finding valid configurations for L-shape Ramsey Grids using GPU acceleration."""
+import torch
+from enum import Enum
+from typing import List, Tuple, Optional
+import random
+
+class Color(Enum):
+    RED = 0
+    GREEN = 1
+    BLUE = 2
+
+def get_device():
+    """Get the appropriate device for PyTorch operations"""
+    if torch.backends.mps.is_available():
+        return torch.device("mps")
+    elif torch.cuda.is_available():
+        return torch.device("cuda")
+    else:
+        return torch.device("cpu")
+
+class LShapeGridGPU:
+    def __init__(self, size: int):
+        self.size = size
+        self.device = get_device()
+        self.grid = torch.full((size, size), -1, dtype=torch.int32, device=self.device)
+        self._init_l_patterns()
+    
+    def _init_l_patterns(self):
+        """Initialize L-shape patterns for GPU-accelerated detection"""
+        patterns = []
+        max_size = min(self.size - 1, 3)
+        
+        for d in range(1, max_size + 1):
+            patterns.append([(0, 0), (d, 0), (d, d)])
+            patterns.append([(0, 0), (d, 0), (d, -d)])
+            patterns.append([(0, 0), (-d, 0), (-d, d)])
+            patterns.append([(0, 0), (-d, 0), (-d, -d)])
+        
+        self.patterns = torch.tensor(patterns, device=self.device)
+    
+    def has_any_l_shape(self) -> Tuple[bool, List[Tuple[int, int]]]:
+        """Check if the grid contains any monochromatic L-shape"""
+        batch_size = 1024
+        total_positions = self.size * self.size
+        
+        for i in range(0, total_positions, batch_size):
+            batch_end = min(i + batch_size, total_positions)
+            for j in range(i, batch_end):
+                y = j // self.size
+                x = j % self.size
+                if self.get_color(x, y) is not None:
+                    has_l, points = self.has_l_shape(x, y)
+                    if has_l:
+                        return True, points
+        
+        return False, []
+    
+    def has_l_shape(self, x: int, y: int) -> Tuple[bool, List[Tuple[int, int]]]:
+        """GPU-accelerated L-shape detection"""
+        color = self.get_color(x, y)
+        if color is None:
+            return False, []
+        
+        window_size = min(self.size, 5)
+        window = torch.zeros((window_size, window_size), dtype=torch.int32, device=self.device)
+        
+        start_y = max(0, y - window_size//2)
+        end_y = min(self.size, y + window_size//2)
+        start_x = max(0, x - window_size//2)
+        end_x = min(self.size, x + window_size//2)
+        
+        window_y_start = window_size//2 - (y - start_y)
+        window_y_end = window_y_start + (end_y - start_y)
+        window_x_start = window_size//2 - (x - start_x)
+        window_x_end = window_x_start + (end_x - start_x)
+        
+        window[window_y_start:window_y_end, window_x_start:window_x_end] = \
+            self.grid[start_y:end_y, start_x:end_x]
+        
+        center_y, center_x = window_size//2, window_size//2
+        center = torch.tensor([center_y, center_x], device=self.device)
+        
+        for pattern in self.patterns:
+            points = pattern + center
+            if torch.any(points < 0) or torch.any(points >= window_size):
+                continue
+                
+            colors = window[points[:, 0], points[:, 1]]
+            if torch.all(colors == color.value):
+                original_points = points - center + torch.tensor([y, x], device=self.device)
+                return True, [(p[1].item(), p[0].item()) for p in original_points]
+        
+        return False, []
+    
+    def get_color(self, x: int, y: int) -> Optional[Color]:
+        """Get the color at position (x,y)"""
+        if 0 <= x < self.size and 0 <= y < self.size:
+            value = self.grid[y, x].item()
+            return Color(value) if value >= 0 else None
+        return None
+    
+    def set_color(self, x: int, y: int, color: Color) -> None:
+        """Set the color at position (x,y)"""
+        if 0 <= x < self.size and 0 <= y < self.size:
+            self.grid[y, x] = color.value
+
+@funsearch.run
+def evaluate(grid_description: tuple[int, int]) -> float:
+    """Evaluates a grid configuration.
+    
+    Args:
+        grid_description: (size, seed) tuple where size is the grid size and seed is for reproducibility
+    
+    Returns:
+        A score where higher is better, 0 means invalid (has L-shape)
+    """
+    size, seed = grid_description
+    random.seed(seed)
+    
+    grid = LShapeGridGPU(size)
+    colors = torch.tensor([c.value for c in Color], device=grid.device)
+    
+    # Generate grid using GPU operations
+    random_indices = torch.randint(0, 3, (size, size), device=grid.device)
+    grid.grid = colors[random_indices]
+    
+    # Check for L-shapes
+    has_l, _ = grid.has_any_l_shape()
+    if has_l:
+        return 0
+    
+    # Calculate score based on color diversity
+    score = 0
+    for i in range(size):
+        row_colors = torch.unique(grid.grid[i, :])
+        col_colors = torch.unique(grid.grid[:, i])
+        score += len(row_colors) + len(col_colors)
+    
+    # Penalize adjacent same colors
+    right_diff = grid.grid[:, :-1] != grid.grid[:, 1:]
+    bottom_diff = grid.grid[:-1, :] != grid.grid[1:, :]
+    score -= 0.5 * (torch.sum(~right_diff) + torch.sum(~bottom_diff))
+    
+    return score
+
+@funsearch.evolve
+def evolve_grid(grid_description: tuple[int, int]) -> tuple[int, int]:
+    """Evolves a grid configuration by modifying the seed.
+    
+    Args:
+        grid_description: (size, seed) tuple
+    
+    Returns:
+        A new (size, seed) tuple with a modified seed
+    """
+    size, seed = grid_description
+    # Modify seed to create variation
+    new_seed = seed + random.randint(-1000, 1000)
+    return (size, new_seed) 

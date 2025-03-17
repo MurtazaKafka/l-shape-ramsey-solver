@@ -24,8 +24,8 @@ from absl import logging
 import numpy as np
 import scipy
 
-from funsearch.implementation import code_manipulation
-from funsearch.implementation import config as config_lib
+import code_manipulation
+import config as config_lib
 
 Signature = tuple[float, ...]
 ScoresPerTest = Mapping[Any, float]
@@ -33,6 +33,9 @@ ScoresPerTest = Mapping[Any, float]
 
 def _softmax(logits: np.ndarray, temperature: float) -> np.ndarray:
   """Returns the tempered softmax of 1D finite `logits`."""
+  if logits.size == 0:
+    return np.array([])  # Return empty array if input is empty
+    
   if not np.all(np.isfinite(logits)):
     non_finites = set(logits[~np.isfinite(logits)])
     raise ValueError(f'`logits` contains non-finite value(s): {non_finites}')
@@ -204,6 +207,9 @@ class Island:
 
   def get_prompt(self) -> tuple[str, int]:
     """Constructs a prompt containing functions from this island."""
+    if not self._clusters:  # Add check for empty clusters
+      return "", 0
+      
     signatures = list(self._clusters.keys())
     cluster_scores = np.array(
         [self._clusters[signature].score for signature in signatures])

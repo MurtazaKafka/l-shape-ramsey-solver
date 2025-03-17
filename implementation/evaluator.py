@@ -18,9 +18,14 @@ import ast
 from collections.abc import Sequence
 import copy
 from typing import Any
+import os
+import matplotlib.pyplot as plt
+from datetime import datetime
+import inspect
 
-from funsearch.implementation import code_manipulation
-from funsearch.implementation import programs_database
+import code_manipulation
+import programs_database
+import sandbox
 
 
 class _FunctionLineVisitor(ast.NodeVisitor):
@@ -85,21 +90,6 @@ def _sample_to_program(
   return evolved_function, str(program)
 
 
-class Sandbox:
-  """Sandbox for executing generated code."""
-
-  def run(
-      self,
-      program: str,
-      function_to_run: str,
-      test_input: str,
-      timeout_seconds: int,
-  ) -> tuple[Any, bool]:
-    """Returns `function_to_run(test_input)` and whether execution succeeded."""
-    raise NotImplementedError(
-        'Must provide a sandbox for executing untrusted code.')
-
-
 def _calls_ancestor(program: str, function_to_evolve: str) -> bool:
   """Returns whether the generated function is calling an earlier version."""
   for name in code_manipulation.get_functions_called(program):
@@ -123,6 +113,7 @@ class Evaluator:
       function_to_run: str,
       inputs: Sequence[Any],
       timeout_seconds: int = 30,
+      sampler = None,
   ):
     self._database = database
     self._template = template
@@ -130,7 +121,57 @@ class Evaluator:
     self._function_to_run = function_to_run
     self._inputs = inputs
     self._timeout_seconds = timeout_seconds
-    self._sandbox = Sandbox()
+    self._sandbox = sandbox.GPUSandbox()
+    self._best_score = float('-inf')
+    self._sampler = sampler
+    
+    # Create visualizations directory if it doesn't exist
+    self._viz_dir = "visualizations"
+    os.makedirs(self._viz_dir, exist_ok=True)
+
+  def _save_visualization(self, grid: list[list[int]], grid_size: int, score: float):
+    """Save visualization of the grid solution."""
+    plt.figure(figsize=(8, 8))
+    plt.imshow(grid, cmap='tab10')
+    plt.colorbar()
+    plt.title(f'L-shape Ramsey Grid {grid_size}x{grid_size}\nScore: {score}')
+    
+    # Add grid lines
+    plt.grid(True, which='both', color='gray', linewidth=0.5)
+    plt.xticks(range(grid_size))
+    plt.yticks(range(grid_size))
+    
+    # Create filename with timestamp
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"l_shape_grid_{grid_size}x{grid_size}_{timestamp}.png"
+    filepath = os.path.join(self._viz_dir, filename)
+    
+    plt.savefig(filepath, dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"Saved visualization to: {filepath}")
+
+  def _extract_grid_from_program(self, program: str) -> list[list[int]]:
+    """Extract the grid from a program string."""
+    # Create a new namespace for execution
+    namespace = {}
+    exec(program, namespace)
+    
+    # Get the function and run it with a test size
+    func = namespace.get('solve_l_shape')
+    if func:
+      # Run the function to get the score
+      score = func(4)  # Test with size 4
+      if score > 0:  # If it's a valid solution
+        # Get the grid from the function's local variables
+        if 'grid' in namespace:
+          return namespace['grid']
+        # If grid is not in namespace, try to get it from the function's locals
+        frame = inspect.currentframe()
+        while frame:
+          if 'grid' in frame.f_locals:
+            return frame.f_locals['grid']
+          frame = frame.f_back
+    return []
 
   def analyse(
       self,
@@ -151,5 +192,22 @@ class Evaluator:
         if not isinstance(test_output, (int, float)):
           raise ValueError('@function.run did not return an int/float score.')
         scores_per_test[current_input] = test_output
+        
+        # Update best score if this is better
+        if test_output > self._best_score:
+          self._best_score = test_output
+          print(f"\nNew Best Score Found: {self._best_score}")
+          print(f"Grid Size: {current_input}")
+          print(f"Program:\n{program}\n")
+          
+          # Save visualization for the new best solution
+          grid = self._extract_grid_from_program(program)
+          if grid:
+            self._save_visualization(grid, current_input[0], test_output)
+          
+          # Notify sampler of success
+          if self._sampler:
+            self._sampler.update_success(test_output)
+
     if scores_per_test:
       self._database.register_program(new_function, island_id, scores_per_test)

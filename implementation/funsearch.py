@@ -17,11 +17,29 @@
 from collections.abc import Sequence
 from typing import Any
 
-from funsearch.implementation import code_manipulation
-from funsearch.implementation import config as config_lib
-from funsearch.implementation import evaluator
-from funsearch.implementation import programs_database
-from funsearch.implementation import sampler
+import os
+import sys
+
+# Ensure the implementation folder is in sys.path.
+this_dir = os.path.dirname(os.path.abspath(__file__))
+if this_dir not in sys.path:
+    sys.path.insert(0, this_dir)
+
+# Simple decorators for evolution and run.
+def evolve(func):
+    # Identity decorator; can be extended with additional logic.
+    return func
+
+def run(func):
+    # Identity decorator; can be extended with additional logic.
+    return func
+
+# Now import modules from within the implementation folder.
+import code_manipulation  # Now found because the current folder is in sys.path.
+import config as config_lib
+import evaluator
+import programs_database
+import sampler
 
 
 def _extract_function_names(specification: str) -> tuple[str, str]:
