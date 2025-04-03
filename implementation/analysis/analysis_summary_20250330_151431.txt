@@ -1,0 +1,13 @@
+L-shape Ramsey Problem - FunSearch Analysis
+Analysis completed at: 2025-03-30 15:14:32.818889
+
+Grid Size Summary:
+Grid 3x3: Valid solution
+  Best Score: 24.0
+  Valid Solutions Found: 20 out of 20
+  Pattern Type: modulo
+  Parameters: {'a': 1, 'b': 2, 'c': 0}
+
+
+Pattern Type Distribution:
+  modulo: 1

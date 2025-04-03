@@ -1,0 +1,5 @@
+Grid Size: 5x5
+Generation: 250
+Best Score: 0.0
+Valid Solutions Found: 0
+

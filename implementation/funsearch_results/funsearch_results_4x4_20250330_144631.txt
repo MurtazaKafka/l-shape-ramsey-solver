@@ -1,0 +1,5 @@
+Grid Size: 4x4
+Generation: 400
+Best Score: 0.0
+Valid Solutions Found: 0
+

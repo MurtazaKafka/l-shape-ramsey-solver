@@ -1,0 +1,5 @@
+Grid Size: 7x7
+Generation: 200
+Best Score: 0.0
+Valid Solutions Found: 0
+

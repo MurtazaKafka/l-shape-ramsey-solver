@@ -1,0 +1,5 @@
+Grid Size: 8x8
+Generation: 50
+Best Score: 0.0
+Valid Solutions Found: 0
+

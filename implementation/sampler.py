@@ -46,13 +46,21 @@ class SimpleLLM(LLM):
 
   def _draw_sample(self, prompt: str) -> str:
     """Returns a test implementation with a simple strategy."""
-    return """def solve_l_shape(grid_size: int) -> int:
-global grid
-grid = [[1 if (i + j) % 2 == 0 else 2 for j in range(grid_size)] for i in range(grid_size)]
-for i in range(grid_size - 1):
-    for j in range(grid_size - 1):
-        if (grid[i][j] == grid[i+1][j] == grid[i][j+1] or grid[i][j] == grid[i+1][j] == grid[i+1][j+1] or grid[i][j] == grid[i][j+1] == grid[i+1][j+1] or grid[i+1][j] == grid[i][j+1] == grid[i+1][j+1]): return -1
-return grid_size * grid_size"""
+    return """def evolve_grid(grid_description: tuple[int, int]) -> tuple[int, int]:
+    size, seed = grid_description
+    import random
+    
+    # Strategy 1: Alternating pattern with random offset
+    if random.random() < 0.5:
+        # Create a new seed that will produce an alternating pattern
+        new_seed = random.randint(1, 10000)
+        return (size, new_seed)
+    
+    # Strategy 2: Modify existing seed slightly to explore nearby solutions
+    else:
+        # Small modification to explore similar solutions
+        new_seed = seed + random.randint(-100, 100)
+        return (size, new_seed)"""
 
 
 class Sampler:
