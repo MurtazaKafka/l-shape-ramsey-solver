@@ -1,168 +1,79 @@
-# L-Shape Ramsey Problem Solver
+# L-Shape Ramsey Problem Solver with LLM-FunSearch
 
-This project implements various approaches to solve the L-shape Ramsey problem, which involves finding grid configurations that avoid monochromatic L-shapes while using a limited number of colors. This implementation extends and builds upon DeepMind's FunSearch framework.
+This repository contains an implementation of the FunSearch algorithm using a locally installed Llama model (specifically Llama 3.3 70B) to solve the L-shape Ramsey problem for grid sizes ranging from 3x3 up to 20x20.
 
 ## Problem Description
 
-The L-shape Ramsey problem asks: Given a grid of size n×n and k colors, what is the largest possible grid that can be colored without creating any monochromatic L-shapes? An L-shape is formed by three cells of the same color in an L configuration.
+The L-shape Ramsey problem asks for a 3-coloring of an n×n grid such that no L-shape is monochromatic (contains all the same color). An L-shape consists of three points where two points are equidistant from the third point, forming a right angle.
 
-## Implementation Approaches
+Example L-shapes:
+- Points at (0,0), (2,0), and (2,2) form an L-shape
+- Points at (1,1), (1,3), and (3,3) form an L-shape
 
-1. **FunSearch Implementation** (`implementation/`)
-   - Based on DeepMind's FunSearch framework
-   - Uses evolutionary algorithms to find solutions
-   - Implements a sandbox for safe code execution
-   - Includes visualization tools
-   - Extends the original implementation with:
-     - Additional sampling strategies
-     - Enhanced visualization capabilities
-     - Improved error handling
-     - Custom evaluation metrics
+## Setup Instructions
 
-2. **Hierarchical Approach** (`l_shape_hierarchical.py`)
-   - Builds solutions by combining known valid smaller grids
-   - Uses multiple generation strategies
-   - Maintains a cache of known solutions
-   - Novel approach developed independently
+### 1. Install Requirements
 
-3. **GPU-Accelerated Approach** (`l_shape_gpu.py`)
-   - Uses PyTorch for GPU-accelerated computation
-   - Implements efficient L-shape detection on GPU
-   - Optimized for large grid sizes
-   - Novel approach developed independently
+Run the installation script to install all required dependencies:
 
-4. **Reinforcement Learning Approach** (`l_shape_rl.py`)
-   - Applies RL techniques to discover optimal grid configurations
-   - Formulates grid coloring as a sequential decision-making problem
-   - Implements state-of-the-art RL algorithms
-   - Utilizes neural networks for policy and value estimation
-   
-   Specific RL techniques implemented:
-   - **Deep Q-Networks (DQN)**
-     - Uses a neural network to approximate the Q-function (expected future rewards)
-     - Implements experience replay to break correlations between consecutive samples
-     - Uses target networks to stabilize training by decoupling action selection and evaluation
-     - Applies double DQN to reduce overestimation bias
-     - Includes exploration strategies to balance exploration and exploitation
-   
-   - **Proximal Policy Optimization (PPO)**
-     - Policy gradient method with clipped objective function to prevent destructively large updates
-     - Balances exploration and exploitation through entropy regularization
-     - Optimizes both policy and value functions simultaneously
-     - Uses generalized advantage estimation (GAE) for more stable learning
-     - Features multiple optimization epochs per batch of collected experience
-   
-   - **Monte Carlo Tree Search (MCTS)**
-     - Combines tree search with random sampling to find optimal decisions
-     - Uses Upper Confidence Bound (UCB) formula to balance exploration vs. exploitation
-     - Implements the four key steps: selection, expansion, simulation, backpropagation
-     - Integrates with neural networks similar to AlphaZero approach
-     - Efficiently explores the state space by focusing on promising paths
-   
-   - **Curriculum Learning**
-     - Gradually increases grid size during training to create a learning curriculum
-     - Starts with smaller, simpler grids and progresses to larger ones
-     - Transfers knowledge (neural network weights) from smaller to larger grid configurations
-     - Implements adaptive difficulty adjustment based on agent performance
-     - Uses success rate thresholds to determine when to increase problem difficulty
-
-   - **Multi-Agent Reinforcement Learning**
-     - Treats each cell as an agent with local observation (3x3 neighborhood)
-     - Implements cooperative MARL where agents optimize global reward
-     - Uses a Centralized Training with Decentralized Execution (CTDE) approach
-     - Coordinates agent decisions through shared rewards
-     - Handles the challenge of sparse rewards in grid-coloring problems
-
-   - **Environment Implementation**
-     - Custom Gymnasium environment implementation (LShapeRamseyEnv)
-     - Properly defined observation and action spaces
-     - Reward function designed to encourage valid grid colorings
-     - Support for visualization and evaluation metrics
-     - Configurable grid sizes and number of colors
-
-## Setup
-
-1. Clone the repository:
 ```bash
-git clone https://github.com/MurtazaKafka/l-shape-ramsey-solver.git
-cd l-shape-ramsey-solver
+chmod +x install_requirements.sh
+./install_requirements.sh
 ```
 
-2. Install dependencies:
+This will install PyTorch with CUDA support, Transformers, and other necessary libraries.
+
+### 2. Test Model Loading
+
+Before running the full FunSearch, it's a good idea to test if the model can be loaded correctly:
+
 ```bash
-pip install -r requirements.txt
+python test_model_loading.py --model-path /path/to/model
 ```
 
-## Usage
+For a more comprehensive test including actually loading the model and testing generation:
 
-1. Run the FunSearch implementation:
 ```bash
-cd implementation
-python run_l_shape_funsearch.py
+python test_model_loading.py --model-path /path/to/model --load-model
 ```
 
-2. Run the hierarchical solver:
+### 3. Run FunSearch
+
+To run the FunSearch algorithm for a specific grid size:
+
 ```bash
-python l_shape_hierarchical.py
+python llama_funsearch.py --grid-size 3
 ```
 
-3. Run the GPU-accelerated solver:
+To run for multiple grid sizes (from min to max):
+
 ```bash
-python l_shape_gpu.py
+python llama_funsearch.py --min-grid-size 3 --max-grid-size 8
 ```
 
-4. Run the Reinforcement Learning solver:
-```bash
-python l_shape_rl.py
-```
+Additional options:
+- `--iterations`: Number of iterations per island (default: 5)
+- `--time-limit`: Time limit in seconds (default: 300)
+- `--model-path`: Path to the model directory (default: standard location)
+- `--temperature`: Temperature for generation (default: 0.7)
 
-## Project Structure
+## File Structure
 
-```
-l-shape-ramsey-solver/
-├── README.md
-├── requirements.txt
-├── l_shape_hierarchical.py
-├── l_shape_gpu.py
-├── l_shape_ramsey.py
-├── l_shape_analysis.py
-├── l_shape_funsearch.py
-├── l_shape_rl.py
-├── rl_models/
-│   ├── dqn_agent.py
-│   ├── ppo_agent.py
-│   ├── mcts_agent.py
-│   └── multiagent/
-└── implementation/
-    ├── run_l_shape_funsearch.py
-    ├── sampler.py
-    ├── evaluator.py
-    ├── sandbox.py
-    ├── programs_database.py
-    ├── funsearch.py
-    └── visualizations/
-```
+- `llama_funsearch.py`: Main implementation of the FunSearch algorithm
+- `l_shape_ramsey.py`: Implementation of the L-shape Ramsey problem
+- `test_model_loading.py`: Script to test if the model can be loaded correctly
+- `install_requirements.sh`: Script to install required dependencies
 
-## Requirements
+## Results
 
-- Python 3.8+
-- PyTorch
-- NumPy
-- Matplotlib
-- Reinforcement Learning Libraries:
-  - Stable Baselines3
-  - Gymnasium (previously Gym)
-  - TensorFlow (optional, for alternate RL implementations)
-  - Ray (for distributed RL training)
-- Other dependencies listed in requirements.txt
+Results, including valid solutions and visualizations, will be saved in the `funsearch_results` directory, organized by grid size.
 
-## Acknowledgments
+## GPU Requirements
 
-This project builds upon DeepMind's FunSearch framework. The FunSearch implementation in the `implementation/` directory is based on the original work by DeepMind. The hierarchical and GPU-accelerated approaches are novel implementations developed independently.
+The script is designed to run on an NVIDIA A6000 GPU (48GB VRAM) or similar. It uses 8-bit or 4-bit quantization to fit the 70B parameter model in memory. If you have less VRAM, you might need to use a smaller model or further adjust quantization settings.
 
-- Original FunSearch paper: [FunSearch: Making the Impossible Possible](https://www.nature.com/articles/s41586-023-06924-6)
-- DeepMind's FunSearch repository: [DeepMind FunSearch](https://github.com/google-deepmind/funsearch)
+## Limitations
 
-## License
-
-MIT License
+- The problem becomes exponentially harder as the grid size increases
+- For grid sizes larger than 5x5, finding valid 3-colorings might be impossible or take a very long time
+- The model generation is stochastic, so results may vary between runs

@@ -14,6 +14,7 @@ import importlib.util
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from l_shape_ramsey import LShapeGrid, Color
 
@@ -52,32 +53,106 @@ class LlamaFunSearch:
         self._load_model()
     
     def _load_model(self):
-        """Load the Llama model and tokenizer."""
+        """Load the Llama model and tokenizer using Transformers."""
+        print(f"Loading model from {self.model_path}...")
         try:
-            from transformers import AutoModelForCausalLM, AutoTokenizer
-            print(f"Loading model from {self.model_path}...")
-            self.tokenizer = AutoTokenizer.from_pretrained(self.model_path)
-            self.model = AutoModelForCausalLM.from_pretrained(
-                self.model_path,
-                device_map="auto",  # Use available GPUs automatically
-                torch_dtype=torch.float16,  # Use half precision for memory efficiency
-                load_in_8bit=True  # Further reduce memory usage with 8-bit quantization
-            )
-            print("Model loaded successfully!")
+            # Check if path exists and is a directory
+            if not os.path.isdir(self.model_path):
+                print(f"Warning: {self.model_path} is not a directory")
+                print("Looking for model files in parent directories...")
+                
+                # Try to find model files in parent directories
+                parent_dir = os.path.dirname(self.model_path)
+                if os.path.isdir(parent_dir):
+                    print(f"Using parent directory: {parent_dir}")
+                    self.model_path = parent_dir
+            
+            # Check GPU availability
+            if torch.cuda.is_available():
+                self.device = torch.device("cuda")
+                print(f"GPU detected: {torch.cuda.get_device_name(0)}")
+                print(f"Number of GPUs available: {torch.cuda.device_count()}")
+                
+                # Print CUDA version info
+                cuda_version = torch.version.cuda
+                print(f"CUDA Version: {cuda_version}")
+                
+                # Print GPU memory info
+                gpu_memory_total = torch.cuda.get_device_properties(0).total_memory / 1024**3
+                gpu_memory_allocated = torch.cuda.memory_allocated() / 1024**3
+                print(f"GPU Memory: {gpu_memory_allocated:.2f}GB allocated / {gpu_memory_total:.2f}GB total")
+            else:
+                self.device = torch.device("cpu")
+                print("No GPU detected, falling back to CPU (this will be very slow).")
+            
+            # Load tokenizer
+            print("Loading tokenizer...")
+            try:
+                # First try with trust_remote_code for newer models
+                self.tokenizer = AutoTokenizer.from_pretrained(
+                    self.model_path, 
+                    local_files_only=True,
+                    trust_remote_code=True
+                )
+            except Exception as e:
+                print(f"Trying alternative tokenizer loading method: {e}")
+                # Try without trust_remote_code
+                self.tokenizer = AutoTokenizer.from_pretrained(
+                    self.model_path, 
+                    local_files_only=True
+                )
+            
+            # Load model - use device_map="auto" for GPU distribution
+            print("Loading model (this may take a while)...")
+            try:
+                self.model = AutoModelForCausalLM.from_pretrained(
+                    self.model_path,
+                    device_map="auto",
+                    load_in_8bit=True, # Try 8-bit first
+                    torch_dtype=torch.float16, # Use float16 for faster inference
+                    local_files_only=True,
+                    trust_remote_code=True
+                )
+            except Exception as e:
+                print(f"Error with 8-bit quantization: {e}")
+                print("Trying 4-bit quantization instead...")
+                self.model = AutoModelForCausalLM.from_pretrained(
+                    self.model_path,
+                    device_map="auto",
+                    load_in_4bit=True, # Try 4-bit if 8-bit fails
+                    torch_dtype=torch.float16,
+                    local_files_only=True,
+                    trust_remote_code=True
+                )
+            
+            # Report success and model configuration
+            print("Model loaded successfully on detected devices.")
+            print(f"Model name: {self.model.config._name_or_path}")
+            print(f"Model parameters: {self.model.num_parameters() / 1e9:.2f}B")
+
         except Exception as e:
             print(f"Error loading model: {e}")
             print("Falling back to CPU mode (this will be very slow)...")
             try:
-                self.tokenizer = AutoTokenizer.from_pretrained(self.model_path)
-                self.model = AutoModelForCausalLM.from_pretrained(
-                    self.model_path,
-                    device_map="cpu",
-                    torch_dtype=torch.float32
+                # Fallback to CPU loading if GPU loading fails
+                self.device = torch.device("cpu")
+                print("Attempting to load tokenizer on CPU...")
+                self.tokenizer = AutoTokenizer.from_pretrained(
+                    self.model_path, 
+                    local_files_only=True
                 )
-                print("Model loaded in CPU mode")
-            except Exception as e:
-                print(f"Critical error loading model: {e}")
-                raise
+                
+                print("Attempting to load model on CPU (this will likely fail with 70B models)...")
+                self.model = AutoModelForCausalLM.from_pretrained(
+                    self.model_path, 
+                    device_map="cpu",
+                    local_files_only=True
+                )
+                print("Model loaded on CPU.")
+            except Exception as fallback_e:
+                print(f"Critical error loading model: {fallback_e}")
+                # Exit if model cannot be loaded at all
+                raise fallback_e
     
     def _create_latin_square(self, n):
         """Create a Latin square pattern for 3×3 grid."""
@@ -100,7 +175,8 @@ class LlamaFunSearch:
         l_shape_grid = LShapeGrid(n)
         for i in range(n):
             for j in range(n):
-                l_shape_grid.set_color(j, i, list(Color)[grid[i, j]])
+                # Cast to int to prevent TypeError with float values
+                l_shape_grid.set_color(j, i, list(Color)[int(grid[i, j])])
         
         # Check for L-shapes
         has_l, points = l_shape_grid.has_any_l_shape()
@@ -124,6 +200,9 @@ class LlamaFunSearch:
             # Tokenize input
             inputs = self.tokenizer(prompt, return_tensors="pt").to(self.model.device)
             
+            # Track generation time
+            start_time = time.time()
+            
             # Generate
             with torch.no_grad():
                 outputs = self.model.generate(
@@ -134,6 +213,19 @@ class LlamaFunSearch:
                     top_k=50,
                     top_p=0.95
                 )
+            
+            # Calculate generation time
+            generation_time = time.time() - start_time
+            tokens_generated = len(outputs[0]) - len(inputs.input_ids[0])
+            tokens_per_second = tokens_generated / generation_time
+            
+            print(f"Generation stats: {tokens_generated} tokens in {generation_time:.2f}s ({tokens_per_second:.2f} tokens/sec)")
+            
+            # Log GPU memory usage if available
+            if torch.cuda.is_available():
+                gpu_memory_allocated = torch.cuda.memory_allocated() / 1024**3  # Convert to GB
+                gpu_memory_reserved = torch.cuda.memory_reserved() / 1024**3    # Convert to GB
+                print(f"GPU Memory: {gpu_memory_allocated:.2f}GB allocated, {gpu_memory_reserved:.2f}GB reserved")
             
             # Decode the output
             generated_text = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
@@ -391,13 +483,21 @@ Return ONLY the Python function without any explanation.
         
         print(f"Starting FunSearch for {grid_size}×{grid_size} grid...")
         
-        # Set our baseline solution
-        baseline_score, _ = self._verify_grid(self.baseline_pattern)
-        self.best_score = baseline_score
-        self.best_solution = self.baseline_pattern
+        # Reset best solution for this grid size
+        self.best_score = 0
+        self.best_solution = None
         
-        print(f"Baseline Latin square solution with score {baseline_score}:")
-        print(self.baseline_pattern)
+        # Use Latin square pattern only for 3x3 grid
+        if grid_size == 3:
+            baseline_pattern = self._create_latin_square(3)
+            baseline_score, _ = self._verify_grid(baseline_pattern)
+            
+            if baseline_score > 0:
+                self.best_score = baseline_score
+                self.best_solution = baseline_pattern
+                
+                print(f"Baseline Latin square solution with score {baseline_score}:")
+                print(self.best_solution)
         
         # Initialize islands
         num_islands = 2  # Reduced to 2 for memory reasons with large model
@@ -410,17 +510,24 @@ Return ONLY the Python function without any explanation.
         
         # Final results
         print(f"\nFunSearch completed for {grid_size}×{grid_size} grid")
-        print(f"Best solution found (score: {self.best_score}):")
-        print(self.best_solution)
+        if self.best_solution is not None:
+            print(f"Best solution found (score: {self.best_score}):")
+            print(self.best_solution)
+        else:
+            print(f"No valid solution found for {grid_size}×{grid_size} grid")
         
         return self.best_solution, self.best_score
 
 def main():
     parser = argparse.ArgumentParser(description='FunSearch for L-shape Ramsey problem')
-    parser.add_argument('--grid-size', type=int, default=3,
-                      help='Grid size to solve (default: 3)')
-    parser.add_argument('--iterations', type=int, default=10,
-                      help='Maximum iterations per island (default: 10)')
+    parser.add_argument('--min-grid-size', type=int, default=3,
+                      help='Minimum grid size to solve (default: 3)')
+    parser.add_argument('--max-grid-size', type=int, default=20,
+                      help='Maximum grid size to solve (default: 20)')
+    parser.add_argument('--grid-size', type=int, default=None,
+                      help='Specific grid size to solve (overrides min/max)')
+    parser.add_argument('--iterations', type=int, default=5,
+                      help='Maximum iterations per island (default: 5)')
     parser.add_argument('--time-limit', type=int, default=300,
                       help='Time limit in seconds (default: 300)')
     parser.add_argument('--model-path', type=str, default=None,
@@ -429,13 +536,38 @@ def main():
                       help='Temperature for generation (default: 0.7)')
     args = parser.parse_args()
     
-    # Create and run FunSearch
+    # Create FunSearch instance
     funsearch = LlamaFunSearch(
         model_path=args.model_path, 
         temperature=args.temperature
     )
     
-    funsearch.solve(args.grid_size, args.iterations, args.time_limit)
+    # Determine grid sizes to solve
+    if args.grid_size is not None:
+        grid_sizes = [args.grid_size]
+    else:
+        grid_sizes = range(args.min_grid_size, args.max_grid_size + 1)
+    
+    # Solve for each grid size
+    results = {}
+    for grid_size in grid_sizes:
+        print(f"\n{'#' * 70}")
+        print(f"# Starting search for {grid_size}×{grid_size} grid")
+        print(f"{'#' * 70}")
+        
+        solution, score = funsearch.solve(grid_size, args.iterations, args.time_limit)
+        results[grid_size] = (solution, score)
+    
+    # Print summary of results
+    print("\n" + "=" * 50)
+    print("SUMMARY OF RESULTS")
+    print("=" * 50)
+    for grid_size, (solution, score) in results.items():
+        if solution is not None:
+            print(f"{grid_size}×{grid_size}: Valid solution found! Score: {score:.2f}")
+        else:
+            print(f"{grid_size}×{grid_size}: No valid solution found")
+    print("=" * 50)
 
 if __name__ == "__main__":
     main()
