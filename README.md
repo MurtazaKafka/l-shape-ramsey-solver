@@ -1,6 +1,14 @@
 # L-Shape Ramsey Problem Solver with LLM-FunSearch
 
-## This README.md file need to be updated
+## This README.md file need to be updated!!
+
+
+
+
+
+
+
+
 
 This repository contains an implementation of the FunSearch algorithm using a locally installed Llama model (specifically Llama 3.3 70B) to solve the L-shape Ramsey problem for grid sizes ranging from 3x3 up to 20x20.
 
