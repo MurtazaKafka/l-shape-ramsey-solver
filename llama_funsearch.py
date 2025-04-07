@@ -4,7 +4,6 @@ import time
 import json
 import random
 import argparse
-import requests
 import numpy as np
 import matplotlib.pyplot as plt
 from datetime import datetime
@@ -14,21 +13,21 @@ import tempfile
 import importlib.util
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import torch
 
 from l_shape_ramsey import LShapeGrid, Color
 
 class LlamaFunSearch:
     """
-    A simplified FunSearch implementation for the L-shape Ramsey problem using Llama via Ollama.
+    A FunSearch implementation for the L-shape Ramsey problem using Llama via Transformers.
     This implementation focuses on the 3×3 grid size with the verified Latin square pattern.
     """
     
-    def __init__(self, model_name="llama3.2:3b", temperature=0.7, max_tokens=2048):
+    def __init__(self, model_path=None, temperature=0.7, max_tokens=2048):
         """Initialize the LlamaFunSearch."""
-        self.model_name = model_name
+        self.model_path = model_path or "/home/DAVIDSON/murtaza/.llama/checkpoints/Llama3.3-70B-Instruct"
         self.temperature = temperature
         self.max_tokens = max_tokens
-        self.api_url = "http://localhost:11434/api/generate"
         self.function_name = "generate_grid"
         
         # Store best solution
@@ -42,31 +41,43 @@ class LlamaFunSearch:
         self.output_dir = "funsearch_results"
         os.makedirs(self.output_dir, exist_ok=True)
         
-        # Test Ollama connection
-        self._test_ollama_connection()
-        
         # Initialize retry parameters
         self.max_retries = 3
         self.retry_delay = 1.0  # seconds
         
         # Initialize thread pool for parallel evaluation
         self.thread_pool = ThreadPoolExecutor(max_workers=4)
+        
+        # Load model and tokenizer
+        self._load_model()
     
-    def _test_ollama_connection(self):
-        """Test the connection to Ollama."""
+    def _load_model(self):
+        """Load the Llama model and tokenizer."""
         try:
-            response = requests.get("http://localhost:11434/api/tags")
-            if response.status_code == 200:
-                models = response.json().get("models", [])
-                model_names = [model["name"] for model in models]
-                if self.model_name in model_names:
-                    print(f"Found {self.model_name} in available models")
-                else:
-                    print(f"Warning: {self.model_name} not found in available models: {model_names}")
-            else:
-                print(f"Warning: Failed to get models from Ollama API: {response.status_code}")
+            from transformers import AutoModelForCausalLM, AutoTokenizer
+            print(f"Loading model from {self.model_path}...")
+            self.tokenizer = AutoTokenizer.from_pretrained(self.model_path)
+            self.model = AutoModelForCausalLM.from_pretrained(
+                self.model_path,
+                device_map="auto",  # Use available GPUs automatically
+                torch_dtype=torch.float16,  # Use half precision for memory efficiency
+                load_in_8bit=True  # Further reduce memory usage with 8-bit quantization
+            )
+            print("Model loaded successfully!")
         except Exception as e:
-            print(f"Warning: Failed to connect to Ollama: {e}")
+            print(f"Error loading model: {e}")
+            print("Falling back to CPU mode (this will be very slow)...")
+            try:
+                self.tokenizer = AutoTokenizer.from_pretrained(self.model_path)
+                self.model = AutoModelForCausalLM.from_pretrained(
+                    self.model_path,
+                    device_map="cpu",
+                    torch_dtype=torch.float32
+                )
+                print("Model loaded in CPU mode")
+            except Exception as e:
+                print(f"Critical error loading model: {e}")
+                raise
     
     def _create_latin_square(self, n):
         """Create a Latin square pattern for 3×3 grid."""
@@ -108,29 +119,30 @@ class LlamaFunSearch:
         return score, None
     
     def _generate_with_llama(self, prompt, retries=0):
-        """Generate code using Llama model via Ollama with retries."""
+        """Generate code using Llama model via Transformers with retries."""
         try:
-            payload = {
-                "model": self.model_name,
-                "prompt": prompt,
-                "temperature": self.temperature,
-                "max_tokens": self.max_tokens,
-                "stream": False
-            }
+            # Tokenize input
+            inputs = self.tokenizer(prompt, return_tensors="pt").to(self.model.device)
             
-            response = requests.post(self.api_url, json=payload)
+            # Generate
+            with torch.no_grad():
+                outputs = self.model.generate(
+                    **inputs,
+                    max_new_tokens=self.max_tokens,
+                    temperature=self.temperature,
+                    do_sample=True,
+                    top_k=50,
+                    top_p=0.95
+                )
             
-            if response.status_code != 200:
-                if retries < self.max_retries:
-                    print(f"Error from Ollama API: {response.status_code}, retrying...")
-                    time.sleep(self.retry_delay)
-                    return self._generate_with_llama(prompt, retries + 1)
-                else:
-                    print(f"Error from Ollama API after {self.max_retries} retries: {response.status_code}")
-                    return ""
+            # Decode the output
+            generated_text = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
             
-            response_json = response.json()
-            return response_json.get("response", "")
+            # Extract response (everything after the prompt)
+            response = generated_text[len(prompt):]
+            
+            return response
+            
         except Exception as e:
             if retries < self.max_retries:
                 print(f"Error generating code: {e}, retrying...")
@@ -377,7 +389,7 @@ Return ONLY the Python function without any explanation.
         print(f"Solving {grid_size}×{grid_size} grid")
         print(f"{'=' * 50}")
         
-        print("Starting FunSearch for {grid_size}×{grid_size} grid...")
+        print(f"Starting FunSearch for {grid_size}×{grid_size} grid...")
         
         # Set our baseline solution
         baseline_score, _ = self._verify_grid(self.baseline_pattern)
@@ -388,7 +400,7 @@ Return ONLY the Python function without any explanation.
         print(self.baseline_pattern)
         
         # Initialize islands
-        num_islands = 4  # Number of parallel search islands
+        num_islands = 2  # Reduced to 2 for memory reasons with large model
         for island_idx in range(num_islands):
             self._initialize_island(island_idx, grid_size)
         
@@ -411,19 +423,19 @@ def main():
                       help='Maximum iterations per island (default: 10)')
     parser.add_argument('--time-limit', type=int, default=300,
                       help='Time limit in seconds (default: 300)')
-    parser.add_argument('--model', type=str, default="llama3.2:3b",
-                      help='Ollama model to use (default: llama3.2:3b)')
+    parser.add_argument('--model-path', type=str, default=None,
+                      help='Path to Llama model (default: search in standard locations)')
     parser.add_argument('--temperature', type=float, default=0.7,
                       help='Temperature for generation (default: 0.7)')
     args = parser.parse_args()
     
     # Create and run FunSearch
     funsearch = LlamaFunSearch(
-        model_name=args.model, 
+        model_path=args.model_path, 
         temperature=args.temperature
     )
     
     funsearch.solve(args.grid_size, args.iterations, args.time_limit)
 
 if __name__ == "__main__":
-    main() 
+    main()
