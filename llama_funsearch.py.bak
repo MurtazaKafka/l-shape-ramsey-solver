@@ -42,7 +42,7 @@ class LlamaFunSearch:
     
     def __init__(self, model_path=None, temperature=0.7, max_tokens=2048):
         """Initialize the LlamaFunSearch."""
-        self.model_path = model_path or "./llama3_hf"
+        self.model_path = model_path or "/home/DAVIDSON/munikzad/.llama/checkpoints/Llama3.3-70B-Instruct"
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.function_name = "generate_grid"
