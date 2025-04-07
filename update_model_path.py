@@ -1,88 +1,98 @@
 #!/usr/bin/env python3
 """
-Update the model path in all relevant files after finding the correct path.
+Update the llama_funsearch.py file to use the converted Hugging Face model.
 """
 
 import os
-import sys
-import argparse
 import re
-from pathlib import Path
+import argparse
+import shutil
 
-def update_file(file_path, old_path, new_path):
-    """Update the model path in a file."""
-    if not os.path.exists(file_path):
-        print(f"Error: File {file_path} does not exist.")
-        return False
-    
-    try:
-        with open(file_path, 'r') as f:
-            content = f.read()
-        
-        # Replace exact path
-        updated_content = content.replace(old_path, new_path)
-        
-        # Also try to replace the path in default parameters
-        pattern = r'(model_path\s*=\s*(?:None|").*?)' + re.escape(old_path.split('/')[-1]) + r'(".*?)'
-        updated_content = re.sub(pattern, f'\\1{new_path.split("/")[-1]}\\2', updated_content)
-        
-        # If no changes, try a more general approach
-        if content == updated_content:
-            pattern = r'(model_path\s*=\s*")([^"]*?)(")'
-            updated_content = re.sub(pattern, f'\\1{new_path}\\3', updated_content)
-        
-        if content != updated_content:
-            with open(file_path, 'w') as f:
-                f.write(updated_content)
-            print(f"Updated {file_path} with new model path.")
-            return True
-        else:
-            print(f"No changes made to {file_path} (path not found).")
-            return False
-    
-    except Exception as e:
-        print(f"Error updating {file_path}: {e}")
-        return False
+def backup_file(file_path):
+    """Create a backup of the file."""
+    backup_path = f"{file_path}.bak"
+    shutil.copy2(file_path, backup_path)
+    print(f"Created backup at {backup_path}")
+    return backup_path
 
-def update_all_files(new_path):
-    """Update the model path in all relevant files."""
-    # Default old path to replace
-    old_path = "/home/DAVIDSON/murtaza/.llama/checkpoints/Llama3.3-70B-Instruct"
+def update_model_path(file_path, new_model_path):
+    """Update the model path in the file."""
+    with open(file_path, 'r') as f:
+        content = f.read()
     
-    files_to_update = [
-        "llama_funsearch.py",
-        "test_model_loading.py"
-    ]
+    # Look for the model_path initialization in __init__
+    pattern = r'(self\.model_path\s*=\s*model_path\s*or\s*)"[^"]*"'
+    new_content = re.sub(pattern, f'\\1"{new_model_path}"', content)
     
-    success_count = 0
+    # If the pattern wasn't found or replaced, try a different approach
+    if new_content == content:
+        print("Could not find model_path pattern in __init__. Trying alternative pattern...")
+        pattern = r'(self\.model_path\s*=\s*)(".*?"|\'.+?\')'
+        new_content = re.sub(pattern, f'\\1"{new_model_path}"', content)
     
-    for file in files_to_update:
-        if update_file(file, old_path, new_path):
-            success_count += 1
+    # Add code to handle the model loading from HuggingFace format
+    if new_content == content:
+        print("Could not update model_path automatically. Manual edits may be required.")
+    else:
+        # Fix potential tokenizer loading issues
+        new_content = new_content.replace(
+            'self.tokenizer = AutoTokenizer.from_pretrained(',
+            'try:\n            # Try newer tokenizer loading method\n            self.tokenizer = AutoTokenizer.from_pretrained('
+        )
+        
+        new_content = new_content.replace(
+            'local_files_only=True,\n                    trust_remote_code=True\n                )',
+            'local_files_only=True,\n                    trust_remote_code=True\n                )\n            except Exception as e:\n                print(f"Tokenizer loading error: {e}")\n                print("Trying basic tokenizer loading...")\n                self.tokenizer = AutoTokenizer.from_pretrained(\n                    self.model_path,\n                    local_files_only=True\n                )'
+        )
+        
+        # Write the updated content back to the file
+        with open(file_path, 'w') as f:
+            f.write(new_content)
+        
+        print(f"Updated model path in {file_path} to {new_model_path}")
+        return True
     
-    print(f"\nUpdated {success_count} of {len(files_to_update)} files with new model path: {new_path}")
-    
-    # Additional instructions
-    print("\nNext steps:")
-    print("1. Run test_model_loading.py to verify the model can be loaded:")
-    print(f"   python test_model_loading.py")
-    print("2. Then run llama_funsearch.py to solve the L-shape Ramsey problem:")
-    print("   python llama_funsearch.py --grid-size 3")
+    return False
 
 def main():
-    parser = argparse.ArgumentParser(description='Update model path in all relevant files')
-    parser.add_argument('model_path', help='New path to the Llama model')
+    """Main function to update the file."""
+    parser = argparse.ArgumentParser(description="Update llama_funsearch.py to use the converted Hugging Face model")
+    parser.add_argument("--file", type=str, default="llama_funsearch.py",
+                        help="Path to the llama_funsearch.py file")
+    parser.add_argument("--model_path", type=str, default="./llama3_hf",
+                        help="Path to the converted Hugging Face model")
+    parser.add_argument("--no_backup", action="store_true",
+                        help="Skip creating a backup of the original file")
+    
     args = parser.parse_args()
     
-    # Validate the input path
-    if not os.path.exists(args.model_path):
-        print(f"Warning: The specified path {args.model_path} does not exist.")
-        confirm = input("Do you still want to proceed with updating the files? (y/n): ")
-        if confirm.lower() != 'y':
-            print("Operation cancelled.")
-            sys.exit(0)
+    # Check if the file exists
+    if not os.path.exists(args.file):
+        print(f"Error: File {args.file} not found")
+        return False
     
-    update_all_files(args.model_path)
+    # Create a backup of the file
+    if not args.no_backup:
+        backup_file(args.file)
+    
+    # Update the model path
+    success = update_model_path(args.file, args.model_path)
+    
+    if success:
+        print("\n===============================================")
+        print("✅ File updated successfully!")
+        print("===============================================")
+        print(f"The llama_funsearch.py file now uses the model at: {args.model_path}")
+        print("\nTo run with the updated model path:")
+        print(f"python {args.file}")
+        print("===============================================")
+    else:
+        print("\n===============================================")
+        print("❌ File update failed.")
+        print("Manual edits may be required.")
+        print("===============================================")
+    
+    return success
 
 if __name__ == "__main__":
     main() 
