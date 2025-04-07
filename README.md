@@ -1,5 +1,15 @@
 # L-Shape Ramsey Problem Solver with LLM-FunSearch
 
+## This README.md file need to be updated!!
+
+
+
+
+
+
+
+
+
 This repository contains an implementation of the FunSearch algorithm using a locally installed Llama model (specifically Llama 3.3 70B) to solve the L-shape Ramsey problem for grid sizes ranging from 3x3 up to 20x20.
 
 ## Problem Description
@@ -71,9 +81,3 @@ Results, including valid solutions and visualizations, will be saved in the `fun
 ## GPU Requirements
 
 The script is designed to run on an NVIDIA A6000 GPU (48GB VRAM) or similar. It uses 8-bit or 4-bit quantization to fit the 70B parameter model in memory. If you have less VRAM, you might need to use a smaller model or further adjust quantization settings.
-
-## Limitations
-
-- The problem becomes exponentially harder as the grid size increases
-- For grid sizes larger than 5x5, finding valid 3-colorings might be impossible or take a very long time
-- The model generation is stochastic, so results may vary between runs
