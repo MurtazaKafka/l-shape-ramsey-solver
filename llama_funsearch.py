@@ -13,9 +13,24 @@ import tempfile
 import importlib.util
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
 import glob
+
+# Try to import PyTorch and Transformers with better error handling
+try:
+    import torch
+    print("PyTorch successfully imported, version:", torch.__version__)
+except ImportError as e:
+    print(f"Error importing PyTorch: {e}")
+    print("Please install PyTorch: pip install torch")
+    raise
+
+try:
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+    print("Transformers successfully imported")
+except ImportError as e:
+    print(f"Error importing Transformers: {e}")
+    print("Please install Transformers: pip install transformers")
+    raise
 
 from l_shape_ramsey import LShapeGrid, Color
 
@@ -27,7 +42,7 @@ class LlamaFunSearch:
     
     def __init__(self, model_path=None, temperature=0.7, max_tokens=2048):
         """Initialize the LlamaFunSearch."""
-        self.model_path = model_path or "/home/DAVIDSON/murtaza/.llama/checkpoints/Llama3.3-70B-Instruct"
+        self.model_path = model_path or "/home/DAVIDSON/munikzad/.llama/checkpoints/Llama3.3-70B-Instruct"
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.function_name = "generate_grid"
