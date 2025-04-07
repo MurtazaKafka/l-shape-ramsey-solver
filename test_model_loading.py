@@ -8,16 +8,74 @@ import os
 import sys
 import argparse
 import torch
+import glob
+from pathlib import Path
 from transformers import AutoTokenizer, AutoModelForCausalLM
+
+def check_common_locations():
+    """Check common locations for Llama models."""
+    common_locations = [
+        # Home directories
+        f"{Path.home()}/.cache/huggingface/hub",
+        f"{Path.home()}/models",
+        f"{Path.home()}/llama",
+        
+        # Shared directories
+        "/shared/models",
+        "/data/models",
+        "/mnt/models",
+        "/models",
+        
+        # Davidson-specific directories
+        "/home/DAVIDSON/shared/models",
+        "/home/models",
+    ]
+    
+    # Look for meta-llama, llama3, llama-3, etc.
+    possible_models = []
+    for location in common_locations:
+        if not os.path.exists(location):
+            continue
+            
+        # Check for potential model directories
+        for pattern in ["*llama*", "*Llama*", "*LLAMA*", "*70B*"]:
+            matches = glob.glob(f"{location}/{pattern}")
+            possible_models.extend(matches)
+    
+    if possible_models:
+        print("Found potential Llama model locations:")
+        for model in possible_models:
+            print(f"  {model}")
+        return possible_models
+    
+    return []
 
 def test_model_loading(model_path, load_model=False):
     """Test if the model can be found and loaded."""
+    original_path = model_path
     print(f"Testing model loading from: {model_path}")
     
     # Check if path exists
     if not os.path.exists(model_path):
         print(f"ERROR: Path {model_path} does not exist")
-        return False
+        
+        # Try parent directory
+        parent_dir = os.path.dirname(model_path)
+        if os.path.exists(parent_dir):
+            print(f"Trying parent directory: {parent_dir}")
+            model_path = parent_dir
+        else:
+            # Check common locations
+            print("Checking common model locations...")
+            possible_models = check_common_locations()
+            
+            if possible_models:
+                # Try the first found model
+                model_path = possible_models[0]
+                print(f"Trying alternative model path: {model_path}")
+            else:
+                print("No alternative model paths found.")
+                return False
     
     # Get directory info
     if os.path.isdir(model_path):
@@ -25,6 +83,25 @@ def test_model_loading(model_path, load_model=False):
         dir_contents = os.listdir(model_path)
         print(f"Directory contains {len(dir_contents)} files/folders")
         print(f"Sample contents: {dir_contents[:5]}")
+        
+        # Check for model files
+        model_files = [f for f in dir_contents if f.endswith('.bin') or f in ['config.json', 'tokenizer.json']]
+        if model_files:
+            print(f"Found model files: {', '.join(model_files)}")
+        else:
+            # If no model files, check subdirectories
+            print("No model files found in directory, checking subdirectories...")
+            
+            # Look for subdirectories that might contain the model
+            subdirs = [os.path.join(model_path, d) for d in dir_contents if os.path.isdir(os.path.join(model_path, d))]
+            for subdir in subdirs:
+                if os.path.isdir(subdir):
+                    subdir_contents = os.listdir(subdir)
+                    model_files = [f for f in subdir_contents if f.endswith('.bin') or f in ['config.json', 'tokenizer.json']]
+                    if model_files:
+                        print(f"Found model files in {subdir}: {', '.join(model_files)}")
+                        model_path = subdir
+                        break
     else:
         print(f"Path is a file, checking parent directory")
         parent_dir = os.path.dirname(model_path)
@@ -33,6 +110,7 @@ def test_model_loading(model_path, load_model=False):
             dir_contents = os.listdir(parent_dir)
             print(f"Parent directory contains {len(dir_contents)} files/folders")
             print(f"Sample contents: {dir_contents[:5]}")
+            model_path = parent_dir
     
     # Check GPU
     print("\nChecking GPU availability:")
@@ -57,6 +135,7 @@ def test_model_loading(model_path, load_model=False):
     
     # Try loading tokenizer
     print("\nAttempting to load tokenizer...")
+    tokenizer = None
     try:
         tokenizer = AutoTokenizer.from_pretrained(
             model_path, 
@@ -118,6 +197,12 @@ def test_model_loading(model_path, load_model=False):
                 print(f"✗ Error loading model with 4-bit quantization: {e2}")
                 return False
     
+    # If model path changed, suggest updating scripts
+    if model_path != original_path and tokenizer is not None:
+        print(f"\nNOTE: Successfully loaded model from {model_path} instead of {original_path}")
+        print("You should update your scripts with the correct path:")
+        print(f"python update_model_path.py {model_path}")
+    
     print("\nAll tests completed!")
     return True
 
@@ -138,6 +223,10 @@ def main():
         sys.exit(0)
     else:
         print("\n✗ Model loading test failed! Please check the error messages above.")
+        print("\nIf you know the correct path to the model, run:")
+        print("python update_model_path.py /correct/path/to/model")
+        print("\nOr use search_model.py to find potential model locations:")
+        print("python search_model.py")
         sys.exit(1)
 
 if __name__ == "__main__":

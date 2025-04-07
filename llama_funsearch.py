@@ -15,6 +15,7 @@ import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
+import glob
 
 from l_shape_ramsey import LShapeGrid, Color
 
@@ -52,8 +53,58 @@ class LlamaFunSearch:
         # Load model and tokenizer
         self._load_model()
     
+    def _find_model_path(self):
+        """Find the model path if the specified one doesn't exist."""
+        if os.path.exists(self.model_path):
+            return self.model_path
+            
+        print(f"Model path {self.model_path} not found. Searching for alternative paths...")
+        
+        # Check parent directory first
+        parent_dir = os.path.dirname(self.model_path)
+        if os.path.exists(parent_dir):
+            print(f"Using parent directory: {parent_dir}")
+            return parent_dir
+            
+        # Check common locations
+        common_locations = [
+            # Home directories
+            os.path.expanduser("~/.cache/huggingface/hub"),
+            os.path.expanduser("~/models"),
+            os.path.expanduser("~/llama"),
+            
+            # Shared directories
+            "/shared/models",
+            "/data/models",
+            "/mnt/models",
+            "/models",
+            
+            # Davidson-specific directories
+            "/home/DAVIDSON/shared/models",
+            "/home/models",
+        ]
+        
+        # Look for meta-llama, llama3, llama-3, etc.
+        for location in common_locations:
+            if not os.path.exists(location):
+                continue
+                
+            # Check for potential model directories
+            for pattern in ["*llama*", "*Llama*", "*LLAMA*", "*70B*"]:
+                matches = glob.glob(f"{location}/{pattern}")
+                if matches:
+                    print(f"Found potential model location: {matches[0]}")
+                    return matches[0]
+        
+        # If all else fails, return the original path (will likely fail later)
+        print("No alternative model paths found.")
+        return self.model_path
+    
     def _load_model(self):
         """Load the Llama model and tokenizer using Transformers."""
+        # First try to find the model path
+        self.model_path = self._find_model_path()
+        
         print(f"Loading model from {self.model_path}...")
         try:
             # Check if path exists and is a directory
