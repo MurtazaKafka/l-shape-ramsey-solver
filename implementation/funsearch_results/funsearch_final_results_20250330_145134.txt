@@ -1,0 +1,22 @@
+FunSearch for L-shape Ramsey Problem
+Run completed at: 2025-03-30 14:51:34.618398
+Total time: 544.37 seconds
+
+Grid 4x4:
+  Best Score: 0.0
+  Generations: 500
+  Valid Solutions: 0
+  Best Genotype: None
+
+Grid 5x5:
+  Best Score: 0.0
+  Generations: 500
+  Valid Solutions: 0
+  Best Genotype: None
+
+Grid 6x6:
+  Best Score: 0.0
+  Generations: 500
+  Valid Solutions: 0
+  Best Genotype: None
+

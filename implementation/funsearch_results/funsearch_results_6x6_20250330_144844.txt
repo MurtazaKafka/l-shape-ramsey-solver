@@ -1,0 +1,5 @@
+Grid Size: 6x6
+Generation: 350
+Best Score: 0.0
+Valid Solutions Found: 0
+

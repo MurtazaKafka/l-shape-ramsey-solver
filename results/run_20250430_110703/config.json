@@ -1,0 +1,11 @@
+{
+  "grid_size": 4,
+  "max_grid_size": 6,
+  "iterations": 2,
+  "time_limit": 120,
+  "model_path": null,
+  "temperature": 0.7,
+  "output_dir": "results",
+  "visualize_all": false,
+  "skip_existing": false
+}
